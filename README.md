@@ -34,7 +34,7 @@ D:\pl_pre\
 ├── train_model.py    # Script to train ML model & save artifacts
 ├── optimizer.py      # The Brain (Genetic Algorithm Logic)
 ├── main.py           # The API (FastAPI Backend)
-├── frontend.py       # The UI (Streamlit Dashboard)
+├── app.py       # The UI (Streamlit Dashboard)
 ├── model.pkl         # Saved Model (Generated after training)
 ├── columns.pkl       # Saved Column Names (Generated after training)
 └── README.md         # Project Documentation
