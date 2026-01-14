@@ -1,0 +1,18 @@
+--- MODEL PERFORMANCE REPORT ---
+Accuracy: 100.00%
+
+Confusion Matrix:
+True Negatives: 827
+False Positives: 0
+False Negatives: 0
+True Positives: 173
+
+Detailed Report:
+              precision    recall  f1-score   support
+
+           0       1.00      1.00      1.00       827
+           1       1.00      1.00      1.00       173
+
+    accuracy                           1.00      1000
+   macro avg       1.00      1.00      1.00      1000
+weighted avg       1.00      1.00      1.00      1000
