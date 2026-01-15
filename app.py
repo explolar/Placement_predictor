@@ -84,7 +84,7 @@ class CareerOptimizer:
                          curr = int(child[idx])
                          if curr > 0: child[idx] = random.randint(0, curr)
                      else:
-                         # Allow skills to fluctuate
+                         # Allow skills to fluctuate slightly for exploration
                          child[idx] = np.clip(child[idx] + random.randint(-5, 5), low, high)
                 new_pop.append(child)
             population = new_pop
@@ -152,6 +152,7 @@ if submitted and model is not None:
         st.divider()
         prob_percent = new_prob * 100
         
+        # Display Result Gauge
         if prob_percent > 80:
             st.success(f"✅ High Chance of Placement: {prob_percent:.1f}%")
         elif prob_percent > 50:
@@ -168,20 +169,23 @@ if submitted and model is not None:
                 improved = improved_vector[i]
                 diff = improved - original
                 
-                # --- FIXED DISPLAY LOGIC ---
-                # 1. Skip if difference is negligible
+                # --- LOGIC FILTER ---
+                # 1. Skip negligible changes
                 if abs(diff) < 0.5:
                     continue
 
-                # 2. Logic Filter: Only show POSITIVE advice
-                # If it's backlogs, we only want to see DECREASES (diff < 0)
+                # 2. Skip Negative Advice (Do not tell users to lower skills)
+                if col != 'backlogs' and diff <= 0:
+                    continue
+                
+                # 3. Skip Bad Backlog Advice (Do not tell users to increase backlogs)
+                if col == 'backlogs' and diff >= 0:
+                    continue
+
+                # Format the message
                 if col == 'backlogs':
-                    if diff >= 0: continue # Skip if backlogs increased or same
                     msg = f"Clear {int(abs(diff))} Backlogs"
-                    
-                # If it's anything else (Skills, CGPA), we only want INCREASES (diff > 0)
                 else:
-                    if diff <= 0: continue # Skip if skills decreased
                     msg = f"Increase by {round(diff, 1)}"
 
                 changes_found = True
@@ -189,19 +193,18 @@ if submitted and model is not None:
                     st.write(f"**Current:** {original} → **Target:** {round(improved, 1)}")
                     st.caption(f"👉 {msg}")
 
-       # ... (keep the loop above the same) ...
-
+        # --- NO CHANGES FOUND LOGIC ---
         if not changes_found:
-            # Scenario 1: You are already a superstar
             if prob_percent >= 80:
                 st.balloons()
                 st.success("🌟 You are already a Top Candidate! Your stats are maxed out.")
             
-            # Scenario 2: You are good, but limited by fixed history (SSC/HSC)
             elif prob_percent > 50:
                 st.info("ℹ️ Good News: Your actionable skills (Tech, Soft Skills) are already optimized.")
-                st.write("The probability (71%) is likely limited by your **SSC/HSC/Degree marks**, which cannot be changed. Focus on Internships to compensate!")
+                st.write(f"The probability ({prob_percent:.1f}%) is likely limited by your **SSC/HSC/Degree marks**, which cannot be changed. Focus on Internships to compensate!")
             
-            # Scenario 3: The AI is stuck
             else:
                 st.warning("⚠️ The AI couldn't find a simple fix. Try manually increasing your Internship count to see if that helps.")
+
+    except Exception as e:
+        st.error(f"An error occurred: {e}")
