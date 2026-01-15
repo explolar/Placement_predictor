@@ -7,8 +7,7 @@ import random
 # --- 1. SETUP PAGE ---
 st.set_page_config(page_title="AI Career Coach", page_icon="🎓", layout="centered")
 
-# --- 2. DEFINE OPTIMIZER CLASS (Internal Logic) ---
-# We paste the class here so we don't need separate files, making deployment safer.
+# --- 2. DEFINE OPTIMIZER CLASS ---
 class CareerOptimizer:
     def __init__(self, model, feature_names, actionable_features, constraints):
         self.model = model
@@ -21,7 +20,7 @@ class CareerOptimizer:
     def _get_fitness(self, individual, original):
         prob = self.model.predict_proba(individual.reshape(1, -1))[0][1]
         
-        # LOGIC FIX: Penalize increasing backlogs
+        # Penalize increasing backlogs hard
         if 'backlogs' in self.actionable:
             b_idx = self.feature_names.index('backlogs')
             if individual[b_idx] > original[b_idx]:
@@ -41,18 +40,21 @@ class CareerOptimizer:
 
     def optimize(self, student_vector):
         population = []
+        # Initialize population
         for _ in range(self.population_size):
             ind = student_vector.copy()
             feat = random.choice(self.actionable)
             idx = self.feature_names.index(feat)
             low, high = self.constraints[feat]
+            
+            # Smart Initialization: Never increase backlogs
             if feat == 'backlogs':
                 if ind[idx] > 0: ind[idx] = random.randint(0, int(ind[idx]))
             else:
                 ind[idx] = random.uniform(low, high)
             population.append(ind)
 
-        best_solution = None
+        best_solution = student_vector.copy() # Default to original
         best_prob = 0.0
 
         for gen in range(self.generations):
@@ -60,11 +62,14 @@ class CareerOptimizer:
             for ind in population:
                 fit, prob = self._get_fitness(ind, student_vector)
                 scored_pop.append((fit, ind, prob))
+            
             scored_pop.sort(key=lambda x: x[0], reverse=True)
+            
             if scored_pop[0][2] > best_prob:
                 best_prob = scored_pop[0][2]
                 best_solution = scored_pop[0][1]
             
+            # Genetic Operations
             survivors = [x[1] for x in scored_pop[:15]]
             new_pop = survivors[:]
             while len(new_pop) < self.population_size:
@@ -74,17 +79,19 @@ class CareerOptimizer:
                      feat = random.choice(self.actionable)
                      idx = self.feature_names.index(feat)
                      low, high = self.constraints[feat]
+                     
                      if feat == 'backlogs':
                          curr = int(child[idx])
                          if curr > 0: child[idx] = random.randint(0, curr)
                      else:
+                         # Allow skills to fluctuate
                          child[idx] = np.clip(child[idx] + random.randint(-5, 5), low, high)
                 new_pop.append(child)
             population = new_pop
             
         return best_solution, best_prob
 
-# --- 3. LOAD MODEL (Cached for Speed) ---
+# --- 3. LOAD MODEL ---
 @st.cache_resource
 def load_brain():
     try:
@@ -118,24 +125,20 @@ with st.form("student_input"):
 
 # --- 5. EXECUTION LOGIC ---
 if submitted and model is not None:
-    # Prepare Data
     input_data = {
         "ssc_percentage": ssc, "hsc_percentage": hsc, "degree_percentage": degree,
         "cgpa": cgpa, "technical_skill_score": tech_score, "soft_skill_score": soft_score,
         "internship_count": internships, "backlogs": backlogs,
-        # Defaults
         "live_projects": 0, "work_experience_months": 0, "certifications": 0,
         "attendance_percentage": 75, "entrance_exam_score": 50, "gender": 1,
         "extracurricular_activities": 0
     }
     
-    # Align Columns
     df = pd.DataFrame([input_data])
     try:
         df = df[model_columns]
         student_vector = df.values[0]
         
-        # Optimize
         constraints = {
             'technical_skill_score': (0, 100), 'soft_skill_score': (0, 100),
             'internship_count': (0, 5), 'backlogs': (0, 5), 'cgpa': (0, 10)
@@ -146,7 +149,6 @@ if submitted and model is not None:
             opt = CareerOptimizer(model, model_columns, actionable, constraints)
             improved_vector, new_prob = opt.optimize(student_vector)
         
-        # Display Results
         st.divider()
         prob_percent = new_prob * 100
         
@@ -164,20 +166,34 @@ if submitted and model is not None:
             if col in actionable:
                 original = student_vector[i]
                 improved = improved_vector[i]
-                if abs(improved - original) > 0.5:
-                    changes_found = True
-                    # Formatting text
-                    if col == 'backlogs':
-                        msg = f"Clear {int(original - improved)} Backlogs"
-                    else:
-                        msg = f"Increase by {round(improved - original, 1)}"
+                diff = improved - original
+                
+                # --- FIXED DISPLAY LOGIC ---
+                # 1. Skip if difference is negligible
+                if abs(diff) < 0.5:
+                    continue
+
+                # 2. Logic Filter: Only show POSITIVE advice
+                # If it's backlogs, we only want to see DECREASES (diff < 0)
+                if col == 'backlogs':
+                    if diff >= 0: continue # Skip if backlogs increased or same
+                    msg = f"Clear {int(abs(diff))} Backlogs"
                     
-                    with st.expander(f"Improve {col.replace('_', ' ').title()}"):
-                        st.write(f"**Current:** {original} → **Target:** {round(improved, 1)}")
-                        st.caption(f"👉 {msg}")
+                # If it's anything else (Skills, CGPA), we only want INCREASES (diff > 0)
+                else:
+                    if diff <= 0: continue # Skip if skills decreased
+                    msg = f"Increase by {round(diff, 1)}"
+
+                changes_found = True
+                with st.expander(f"Improve {col.replace('_', ' ').title()}"):
+                    st.write(f"**Current:** {original} → **Target:** {round(improved, 1)}")
+                    st.caption(f"👉 {msg}")
 
         if not changes_found:
-             st.info("Your profile is solid! Focus on maintaining these stats.")
+            if prob_percent > 50:
+                st.info("Your profile is solid! Focus on maintaining these stats.")
+            else:
+                st.info("The AI couldn't find a simple fix. This might require a long-term improvement strategy.")
 
     except Exception as e:
         st.error(f"An error occurred: {e}")
