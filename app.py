@@ -20,7 +20,7 @@ class CareerOptimizer:
     def _get_fitness(self, individual, original):
         prob = self.model.predict_proba(individual.reshape(1, -1))[0][1]
         
-        # Penalize increasing backlogs
+        # Constraint: Penalize increasing backlogs
         if 'backlogs' in self.actionable:
             b_idx = self.feature_names.index('backlogs')
             if individual[b_idx] > original[b_idx]:
@@ -46,8 +46,11 @@ class CareerOptimizer:
             idx = self.feature_names.index(feat)
             low, high = self.constraints[feat]
             
+            # Logic: Backlogs only go down, integers stay integers
             if feat == 'backlogs':
                 if ind[idx] > 0: ind[idx] = random.randint(0, int(ind[idx]))
+            elif feat in ['internship_count', 'live_projects', 'certifications', 'work_experience_months', 'extracurricular_activities']:
+                ind[idx] = random.randint(int(low), int(high))
             else:
                 ind[idx] = random.uniform(low, high)
             population.append(ind)
@@ -75,9 +78,12 @@ class CareerOptimizer:
                      feat = random.choice(self.actionable)
                      idx = self.feature_names.index(feat)
                      low, high = self.constraints[feat]
+                     
                      if feat == 'backlogs':
                          curr = int(child[idx])
                          if curr > 0: child[idx] = random.randint(0, curr)
+                     elif feat in ['internship_count', 'live_projects', 'certifications', 'work_experience_months', 'extracurricular_activities']:
+                         child[idx] = np.clip(child[idx] + random.choice([-1, 1]), low, high)
                      else:
                          child[idx] = np.clip(child[idx] + random.randint(-5, 5), low, high)
                 new_pop.append(child)
@@ -100,67 +106,93 @@ model, model_columns = load_brain()
 
 # --- 4. UI LAYOUT ---
 st.title("🎓 AI Career Placement Coach")
-st.write("Enter your academic details to get a personalized placement strategy.")
+st.write("Enter your full profile details to get a personalized strategy.")
 
 with st.form("student_input"):
     col1, col2 = st.columns(2)
+    
+    # COLUMN 1: ACADEMICS & BASICS
     with col1:
-        ssc = st.number_input("SSC % (10th)", 40, 100, 60)
-        hsc = st.number_input("HSC % (12th)", 40, 100, 60)
-        degree = st.number_input("Degree %", 40, 100, 60)
-        cgpa = st.number_input("Current CGPA", 0.0, 10.0, 7.0)
-        entrance = st.number_input("Entrance Exam Score", 0, 100, 50)
-        
-    with col2:
-        tech_score = st.slider("Technical Skill Score", 0, 100, 50)
-        soft_score = st.slider("Soft Skill Score", 0, 100, 50)
-        projects = st.slider("Live Projects", 0, 5, 0)
-        internships = st.slider("Internships Completed", 0, 5, 0)
-        # NEW INPUTS
-        work_exp = st.number_input("Work Experience (Months)", 0, 24, 0)
-        certs = st.slider("Certifications", 0, 5, 0)
+        st.subheader("📚 Academics")
+        ssc = st.number_input("SSC % (10th)", 40, 100, 85)
+        hsc = st.number_input("HSC % (12th)", 40, 100, 85)
+        degree = st.number_input("Degree %", 40, 100, 75)
+        cgpa = st.number_input("Current CGPA", 0.0, 10.0, 8.0)
         backlogs = st.number_input("Current Backlogs", 0, 10, 0)
+        attendance = st.slider("Attendance %", 0, 100, 80)
+        entrance = st.number_input("Entrance Exam Score", 0, 100, 60)
+        
+    # COLUMN 2: SKILLS & EXPERIENCE
+    with col2:
+        st.subheader("🛠️ Skills & Experience")
+        tech_score = st.slider("Technical Skill Score", 0, 100, 70)
+        soft_score = st.slider("Soft Skill Score", 0, 100, 70)
+        projects = st.slider("Live Projects", 0, 5, 1)
+        internships = st.slider("Internships Completed", 0, 5, 1)
+        work_exp = st.number_input("Work Experience (Months)", 0, 24, 0)
+        certs = st.slider("Certifications", 0, 5, 1)
+        extra = st.selectbox("Extracurricular Activities", ["No", "Yes"])
+    
+    # GENDER (Hidden Default or Optional)
+    gender_input = 1 # Male by default for simplicity, or add input if needed
     
     submitted = st.form_submit_button("Analyze My Profile")
 
 # --- 5. EXECUTION LOGIC ---
 if submitted and model is not None:
+    # Convert Yes/No to 1/0
+    extra_score = 1 if extra == "Yes" else 0
+
     input_data = {
-        "ssc_percentage": ssc, "hsc_percentage": hsc, "degree_percentage": degree,
-        "cgpa": cgpa, "technical_skill_score": tech_score, "soft_skill_score": soft_score,
-        "internship_count": internships, "backlogs": backlogs,
+        "ssc_percentage": ssc,
+        "hsc_percentage": hsc,
+        "degree_percentage": degree,
+        "cgpa": cgpa,
+        "technical_skill_score": tech_score,
+        "soft_skill_score": soft_score,
+        "internship_count": internships,
+        "backlogs": backlogs,
         "live_projects": projects,
         "entrance_exam_score": entrance,
-        # UPDATED: Now connected to UI
-        "work_experience_months": work_exp, 
+        "work_experience_months": work_exp,
         "certifications": certs,
-        # Still Defaults (Low Impact)
-        "attendance_percentage": 75, "gender": 1,
-        "extracurricular_activities": 0
+        "attendance_percentage": attendance,
+        "extracurricular_activities": extra_score,
+        "gender": gender_input
     }
     
     df = pd.DataFrame([input_data])
     try:
+        # Reorder columns to match model
         df = df[model_columns]
         student_vector = df.values[0]
         
-        # Add EVERYTHING to the optimizer targets
+        # DEFINING THE "ACTIONABLE" UNIVERSE
+        # These are the things the AI is allowed to change to help you.
         constraints = {
-            'technical_skill_score': (0, 100), 'soft_skill_score': (0, 100),
-            'internship_count': (0, 5), 'backlogs': (0, 5), 'cgpa': (0, 10),
-            'live_projects': (0, 5), 'entrance_exam_score': (0, 100),
-            'work_experience_months': (0, 24), 'certifications': (0, 5)
+            'technical_skill_score': (0, 100), 
+            'soft_skill_score': (0, 100),
+            'internship_count': (0, 5), 
+            'backlogs': (0, 5), 
+            'cgpa': (0, 10),
+            'live_projects': (0, 5), 
+            'entrance_exam_score': (0, 100),
+            'work_experience_months': (0, 24), 
+            'certifications': (0, 5),
+            'extracurricular_activities': (0, 1)
         }
         actionable = list(constraints.keys())
         
-        with st.spinner("AI is simulating your future..."):
+        with st.spinner("AI is simulating 30+ future scenarios..."):
             opt = CareerOptimizer(model, model_columns, actionable, constraints)
             improved_vector, new_prob = opt.optimize(student_vector)
         
+        # --- DISPLAY RESULTS ---
         st.divider()
         prob_percent = new_prob * 100
         
-        if prob_percent > 80:
+        # Gauge Chart Logic
+        if prob_percent > 85:
             st.success(f"✅ High Chance of Placement: {prob_percent:.1f}%")
         elif prob_percent > 50:
             st.warning(f"⚠️ Moderate Chance: {prob_percent:.1f}%")
@@ -176,12 +208,18 @@ if submitted and model is not None:
                 improved = improved_vector[i]
                 diff = improved - original
                 
+                # --- FILTERING LOGIC ---
                 if abs(diff) < 0.5: continue
+                # Don't suggest lowering skills
                 if col != 'backlogs' and diff <= 0: continue
+                # Don't suggest increasing backlogs
                 if col == 'backlogs' and diff >= 0: continue
 
+                # Text Formatting
                 if col == 'backlogs':
                     msg = f"Clear {int(abs(diff))} Backlogs"
+                elif col == 'extracurricular_activities':
+                    msg = "Start participating in Extracurriculars"
                 else:
                     msg = f"Increase by {round(diff, 1)}"
 
@@ -190,15 +228,17 @@ if submitted and model is not None:
                     st.write(f"**Current:** {original} → **Target:** {round(improved, 1)}")
                     st.caption(f"👉 {msg}")
 
+        # --- FINAL ANALYSIS MESSAGE ---
         if not changes_found:
-            if prob_percent >= 80:
+            if prob_percent >= 85:
                 st.balloons()
-                st.success("🌟 You are already a Top Candidate! Your stats are maxed out.")
+                st.success("🌟 You are a Top Candidate! Your profile is incredibly strong.")
             elif prob_percent > 50:
-                st.info("ℹ️ Good News: Your profile is optimized.")
-                st.write(f"Your probability is **{prob_percent:.1f}%**. If you want to push it higher, focus on **Extracurricular Activities** (the only hidden variable left).")
+                st.info("ℹ️ Your profile is solid.")
+                st.write(f"Your probability ({prob_percent:.1f}%) is good. Since your skills are optimized, the remaining gap is likely due to fixed past academic performance (SSC/HSC) which cannot be changed.")
             else:
-                st.warning("⚠️ The AI couldn't find a simple fix. Try manually increasing your Projects or Internships.")
+                st.warning("⚠️ The AI couldn't find a single specific fix. This implies a need for holistic improvement across all areas (Projects, Internships, and Skills).")
 
     except Exception as e:
         st.error(f"An error occurred: {e}")
+        st.write("Debug info: Ensure your CSV file has all the columns used in training.")
