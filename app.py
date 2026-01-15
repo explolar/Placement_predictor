@@ -189,11 +189,19 @@ if submitted and model is not None:
                     st.write(f"**Current:** {original} → **Target:** {round(improved, 1)}")
                     st.caption(f"👉 {msg}")
 
-        if not changes_found:
-            if prob_percent > 50:
-                st.info("Your profile is solid! Focus on maintaining these stats.")
-            else:
-                st.info("The AI couldn't find a simple fix. This might require a long-term improvement strategy.")
+       # ... (keep the loop above the same) ...
 
-    except Exception as e:
-        st.error(f"An error occurred: {e}")
+        if not changes_found:
+            # Scenario 1: You are already a superstar
+            if prob_percent >= 80:
+                st.balloons()
+                st.success("🌟 You are already a Top Candidate! Your stats are maxed out.")
+            
+            # Scenario 2: You are good, but limited by fixed history (SSC/HSC)
+            elif prob_percent > 50:
+                st.info("ℹ️ Good News: Your actionable skills (Tech, Soft Skills) are already optimized.")
+                st.write("The probability (71%) is likely limited by your **SSC/HSC/Degree marks**, which cannot be changed. Focus on Internships to compensate!")
+            
+            # Scenario 3: The AI is stuck
+            else:
+                st.warning("⚠️ The AI couldn't find a simple fix. Try manually increasing your Internship count to see if that helps.")
