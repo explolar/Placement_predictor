@@ -20,7 +20,7 @@ class CareerOptimizer:
     def _get_fitness(self, individual, original):
         prob = self.model.predict_proba(individual.reshape(1, -1))[0][1]
         
-        # Penalize increasing backlogs hard
+        # Penalize increasing backlogs
         if 'backlogs' in self.actionable:
             b_idx = self.feature_names.index('backlogs')
             if individual[b_idx] > original[b_idx]:
@@ -40,21 +40,19 @@ class CareerOptimizer:
 
     def optimize(self, student_vector):
         population = []
-        # Initialize population
         for _ in range(self.population_size):
             ind = student_vector.copy()
             feat = random.choice(self.actionable)
             idx = self.feature_names.index(feat)
             low, high = self.constraints[feat]
             
-            # Smart Initialization: Never increase backlogs
             if feat == 'backlogs':
                 if ind[idx] > 0: ind[idx] = random.randint(0, int(ind[idx]))
             else:
                 ind[idx] = random.uniform(low, high)
             population.append(ind)
 
-        best_solution = student_vector.copy() # Default to original
+        best_solution = student_vector.copy()
         best_prob = 0.0
 
         for gen in range(self.generations):
@@ -64,12 +62,10 @@ class CareerOptimizer:
                 scored_pop.append((fit, ind, prob))
             
             scored_pop.sort(key=lambda x: x[0], reverse=True)
-            
             if scored_pop[0][2] > best_prob:
                 best_prob = scored_pop[0][2]
                 best_solution = scored_pop[0][1]
             
-            # Genetic Operations
             survivors = [x[1] for x in scored_pop[:15]]
             new_pop = survivors[:]
             while len(new_pop) < self.population_size:
@@ -79,12 +75,10 @@ class CareerOptimizer:
                      feat = random.choice(self.actionable)
                      idx = self.feature_names.index(feat)
                      low, high = self.constraints[feat]
-                     
                      if feat == 'backlogs':
                          curr = int(child[idx])
                          if curr > 0: child[idx] = random.randint(0, curr)
                      else:
-                         # Allow skills to fluctuate slightly for exploration
                          child[idx] = np.clip(child[idx] + random.randint(-5, 5), low, high)
                 new_pop.append(child)
             population = new_pop
@@ -115,9 +109,14 @@ with st.form("student_input"):
         hsc = st.number_input("HSC % (12th)", 40, 100, 60)
         degree = st.number_input("Degree %", 40, 100, 60)
         cgpa = st.number_input("Current CGPA", 0.0, 10.0, 7.0)
+        
     with col2:
+        # NEW: Added Entrance Exam Score
+        entrance = st.number_input("Entrance Exam Score", 0, 100, 50)
         tech_score = st.slider("Technical Skill Score", 0, 100, 50)
         soft_score = st.slider("Soft Skill Score", 0, 100, 50)
+        # NEW: Added Projects
+        projects = st.slider("Live Projects", 0, 5, 0)
         internships = st.slider("Internships Completed", 0, 5, 0)
         backlogs = st.number_input("Current Backlogs", 0, 10, 0)
     
@@ -129,8 +128,12 @@ if submitted and model is not None:
         "ssc_percentage": ssc, "hsc_percentage": hsc, "degree_percentage": degree,
         "cgpa": cgpa, "technical_skill_score": tech_score, "soft_skill_score": soft_score,
         "internship_count": internships, "backlogs": backlogs,
-        "live_projects": 0, "work_experience_months": 0, "certifications": 0,
-        "attendance_percentage": 75, "entrance_exam_score": 50, "gender": 1,
+        # UPDATED: Mapping the new inputs
+        "live_projects": projects,
+        "entrance_exam_score": entrance,
+        # Still Defaults
+        "work_experience_months": 0, "certifications": 0,
+        "attendance_percentage": 75, "gender": 1,
         "extracurricular_activities": 0
     }
     
@@ -139,9 +142,11 @@ if submitted and model is not None:
         df = df[model_columns]
         student_vector = df.values[0]
         
+        # We add 'live_projects' and 'entrance_exam_score' to optimization targets now
         constraints = {
             'technical_skill_score': (0, 100), 'soft_skill_score': (0, 100),
-            'internship_count': (0, 5), 'backlogs': (0, 5), 'cgpa': (0, 10)
+            'internship_count': (0, 5), 'backlogs': (0, 5), 'cgpa': (0, 10),
+            'live_projects': (0, 5), 'entrance_exam_score': (0, 100)
         }
         actionable = list(constraints.keys())
         
@@ -152,7 +157,6 @@ if submitted and model is not None:
         st.divider()
         prob_percent = new_prob * 100
         
-        # Display Result Gauge
         if prob_percent > 80:
             st.success(f"✅ High Chance of Placement: {prob_percent:.1f}%")
         elif prob_percent > 50:
@@ -169,20 +173,10 @@ if submitted and model is not None:
                 improved = improved_vector[i]
                 diff = improved - original
                 
-                # --- LOGIC FILTER ---
-                # 1. Skip negligible changes
-                if abs(diff) < 0.5:
-                    continue
+                if abs(diff) < 0.5: continue
+                if col != 'backlogs' and diff <= 0: continue
+                if col == 'backlogs' and diff >= 0: continue
 
-                # 2. Skip Negative Advice (Do not tell users to lower skills)
-                if col != 'backlogs' and diff <= 0:
-                    continue
-                
-                # 3. Skip Bad Backlog Advice (Do not tell users to increase backlogs)
-                if col == 'backlogs' and diff >= 0:
-                    continue
-
-                # Format the message
                 if col == 'backlogs':
                     msg = f"Clear {int(abs(diff))} Backlogs"
                 else:
@@ -193,18 +187,20 @@ if submitted and model is not None:
                     st.write(f"**Current:** {original} → **Target:** {round(improved, 1)}")
                     st.caption(f"👉 {msg}")
 
-        # --- NO CHANGES FOUND LOGIC ---
         if not changes_found:
             if prob_percent >= 80:
                 st.balloons()
                 st.success("🌟 You are already a Top Candidate! Your stats are maxed out.")
             
             elif prob_percent > 50:
-                st.info("ℹ️ Good News: Your actionable skills (Tech, Soft Skills) are already optimized.")
-                st.write(f"The probability ({prob_percent:.1f}%) is likely limited by your **SSC/HSC/Degree marks**, which cannot be changed. Focus on Internships to compensate!")
-            
+                st.info("ℹ️ Good News: Your actionable skills are optimized.")
+                # IMPROVED EXPLANATION LOGIC
+                if ssc > 85 and hsc > 85:
+                    st.write(f"Your Probability ({prob_percent:.1f}%) is good. Since your grades are perfect, the remaining gap might be due to **Certifications or Work Experience**, which are currently set to default values.")
+                else:
+                    st.write(f"The probability ({prob_percent:.1f}%) is likely limited by your **SSC/HSC/Degree marks**.")
             else:
-                st.warning("⚠️ The AI couldn't find a simple fix. Try manually increasing your Internship count to see if that helps.")
+                st.warning("⚠️ The AI couldn't find a simple fix. Try manually increasing your Projects or Internships.")
 
     except Exception as e:
         st.error(f"An error occurred: {e}")
