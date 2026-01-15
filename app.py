@@ -109,15 +109,16 @@ with st.form("student_input"):
         hsc = st.number_input("HSC % (12th)", 40, 100, 60)
         degree = st.number_input("Degree %", 40, 100, 60)
         cgpa = st.number_input("Current CGPA", 0.0, 10.0, 7.0)
+        entrance = st.number_input("Entrance Exam Score", 0, 100, 50)
         
     with col2:
-        # NEW: Added Entrance Exam Score
-        entrance = st.number_input("Entrance Exam Score", 0, 100, 50)
         tech_score = st.slider("Technical Skill Score", 0, 100, 50)
         soft_score = st.slider("Soft Skill Score", 0, 100, 50)
-        # NEW: Added Projects
         projects = st.slider("Live Projects", 0, 5, 0)
         internships = st.slider("Internships Completed", 0, 5, 0)
+        # NEW INPUTS
+        work_exp = st.number_input("Work Experience (Months)", 0, 24, 0)
+        certs = st.slider("Certifications", 0, 5, 0)
         backlogs = st.number_input("Current Backlogs", 0, 10, 0)
     
     submitted = st.form_submit_button("Analyze My Profile")
@@ -128,11 +129,12 @@ if submitted and model is not None:
         "ssc_percentage": ssc, "hsc_percentage": hsc, "degree_percentage": degree,
         "cgpa": cgpa, "technical_skill_score": tech_score, "soft_skill_score": soft_score,
         "internship_count": internships, "backlogs": backlogs,
-        # UPDATED: Mapping the new inputs
         "live_projects": projects,
         "entrance_exam_score": entrance,
-        # Still Defaults
-        "work_experience_months": 0, "certifications": 0,
+        # UPDATED: Now connected to UI
+        "work_experience_months": work_exp, 
+        "certifications": certs,
+        # Still Defaults (Low Impact)
         "attendance_percentage": 75, "gender": 1,
         "extracurricular_activities": 0
     }
@@ -142,11 +144,12 @@ if submitted and model is not None:
         df = df[model_columns]
         student_vector = df.values[0]
         
-        # We add 'live_projects' and 'entrance_exam_score' to optimization targets now
+        # Add EVERYTHING to the optimizer targets
         constraints = {
             'technical_skill_score': (0, 100), 'soft_skill_score': (0, 100),
             'internship_count': (0, 5), 'backlogs': (0, 5), 'cgpa': (0, 10),
-            'live_projects': (0, 5), 'entrance_exam_score': (0, 100)
+            'live_projects': (0, 5), 'entrance_exam_score': (0, 100),
+            'work_experience_months': (0, 24), 'certifications': (0, 5)
         }
         actionable = list(constraints.keys())
         
@@ -191,14 +194,9 @@ if submitted and model is not None:
             if prob_percent >= 80:
                 st.balloons()
                 st.success("🌟 You are already a Top Candidate! Your stats are maxed out.")
-            
             elif prob_percent > 50:
-                st.info("ℹ️ Good News: Your actionable skills are optimized.")
-                # IMPROVED EXPLANATION LOGIC
-                if ssc > 85 and hsc > 85:
-                    st.write(f"Your Probability ({prob_percent:.1f}%) is good. Since your grades are perfect, the remaining gap might be due to **Certifications or Work Experience**, which are currently set to default values.")
-                else:
-                    st.write(f"The probability ({prob_percent:.1f}%) is likely limited by your **SSC/HSC/Degree marks**.")
+                st.info("ℹ️ Good News: Your profile is optimized.")
+                st.write(f"Your probability is **{prob_percent:.1f}%**. If you want to push it higher, focus on **Extracurricular Activities** (the only hidden variable left).")
             else:
                 st.warning("⚠️ The AI couldn't find a simple fix. Try manually increasing your Projects or Internships.")
 
